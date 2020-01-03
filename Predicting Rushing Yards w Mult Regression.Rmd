@@ -1,0 +1,266 @@
+---
+title: "Data 606 Final Project"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float:
+      collapsed: yes
+---
+
+## Motivation for this Project
+
+The purpose of this analysis is to find what conditions allowed for the most rushing yards by NFL running backs in 2018. The definition for what each factor means can be found at https://www.kaggle.com/c/nfl-big-data-bowl-2020/data. Our response variable will be `Yards` and our job is to find the significant explanatory variables. To do this the following analytical techniques were executed:
+
+- Cleaning and Transformations
+- Sampling Distributions
+- Hypothesis Testing
+- Multiple Regression
+
+## Exploratory Analysis
+
+```{r, results = "hide", message=F}
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(gridExtra)
+library(DATA606)
+```
+
+```{r}
+d1a <- read.csv("https://raw.githubusercontent.com/wco1216/DATA-606/master/awaygames.csv", TRUE, ",")
+d1h <- read.csv("https://raw.githubusercontent.com/wco1216/DATA-606/master/homegames.csv", TRUE, ",")
+```
+
+### Cleaning and Transformations
+
+Create columns with binary values 'for less than 2 min on the clock' and 'successful 1st down conversion'.
+
+```{r}
+df <- rbind(d1a, d1h)
+df2 <- sample_n(df, 20000)
+df2 <- select(df2, Team, Distance, Yards, GameClock)
+
+df2 <- df2 %>%
+  mutate(under2m = 1) %>%
+  mutate(first_down = 1)
+
+df2$GameClock <- str_remove_all(df2$GameClock, ":")
+df2$GameClock <- as.character(df2$GameClock)
+df2$GameClock <- as.numeric(df2$GameClock)
+
+for (row in 1:nrow(df2)) {
+    if (df2$Yards[row] >= df2$Distance[row]) {
+        df2$first_down[row] <- 'yes' 
+    } else {
+        df2$first_down[row] <- 'no'
+    }
+}
+
+for (row in 1:nrow(df2)) {
+    if (df2$GameClock[row] >= 20000) {
+        df2$under2m[row] <- 'no' 
+    } else {
+        df2$under2m[row] <- 'yes'
+    }
+}
+```
+
+### Sampling Distributions
+
+To start I would like to simulate one posession by randomly sampling four plays out of the dataset, averaging the yards gained and the distance to the first, and plotting these to visualize the distributions.
+
+```{r, message=F, warning=F}
+sample_means4 <- rep(NA, 5000)
+sample_means4 <- data.frame(sample_means4)
+sample_means4 <- sample_means4 %>%
+  mutate(Distance = 0)
+for(i in 1:5000){
+  samp <- sample_n(df, 4) 
+  sample_means4$Yards[i] <- mean(samp$Yards)
+  sample_means4$Distance[i] <- mean(samp$Distance)
+  if (sample_means4$Yards[i] >= sample_means4$Distance[i]) {
+      sample_means4$first_down[i] <- 'yes' 
+} else {
+      sample_means4$first_down[i] <- 'no'
+}
+}
+```
+
+```{r, message=F, warning=F}
+y <- ggplot(sample_means4, aes(Yards)) + geom_histogram(color = "darkblue", fill = "lightblue") +
+  xlim(-2.5, 20) + ggtitle("Yards Gained") + xlab("Yards Gained")
+d <- ggplot(sample_means4, aes(Distance)) + geom_histogram(color = "red", fill = "darkred") +
+  xlim(-2.5, 20) + ggtitle("Distance to First Down") +
+  xlab("Distance to First Down")
+grid.arrange(y, d, ncol=1)
+```
+
+```{r, message=F, warning=F}
+ggplot(sample_means4, aes(x=jitter(Yards), y=jitter(Distance), color=first_down)) +
+  geom_point() + xlab("Yards Gained") +
+  ylab("Distance to First Down") +
+  xlim(-2.5, 20) +
+  ylim(-2.5, 20)
+```
+
+
+In the sample the yards gained graph tails right but both graphs are relatively normal and unimodal.
+
+The second graph allows for a basic understanding of just how many first down conversions occured in our simulations.
+
+### Hypothesis Testing
+
+##### First Down Conversions
+
+Null Hypothesis: A first down conversion does not provide statistical significance that on average more yards are gained.
+
+Alternative Hypothesis: A first down conversion does provide statistical significance that on average more yards are gained.
+
+Although this is intuitive let us prove that it is statistically significant.
+
+```{r}
+by(df2$Yards, df2$first_down, mean)
+```
+
+We observe a large difference in the average amount of yards gained when a first down conversion occurs.
+
+```{r}
+by(df2$Yards, df2$first_down, length)
+```
+
+We notice that first down conversion occur about 20% of the time.
+
+The data set was acquired through random sampling and is less than 10% of the population so the conditions are set for inference.
+
+```{r}
+inference(y = df2$Yards, x = df2$first_down, est = "mean", type = "ht", null = 0, alternative = "less", method = "theoretical")
+```
+
+The p-value is 0 which is less than 0.5 therefor we can reject the null hypothesis. If there is a first down conversion then there is statistical evidence that on average more yards are gained versus when a first down conversion does not occur.
+
+
+##### Two Minute Warning
+
+Null Hypothesis: The average amount of yards gained or lossed is not effected by short time on the clock.
+
+Alternative Hypothesis: The average amount of yards gained or loss is effected by short time on the clock.
+
+```{r}
+by(df2$Yards, df2$under2m, mean)
+```
+
+We observe a difference in the amount of yards gained with less than two minutes on the clock, lets also take note of the quantity of each occurance.
+
+```{r}
+by(df2$Yards, df2$under2m, length)
+```
+
+Although there is a suddell difference in the amount of yards gained under both conditions, these are relatively large  which might suggest statistical evidence.
+
+The data set was acquired through random sampling and is less than 10% of the population so the conditions are set for inference.
+
+```{r}
+inference(y = df2$Yards, x = df2$under2m, est = "mean", type = "ht", null = 0, alternative = "twosided", method = "theoretical")
+```
+
+We observe a higher p-value than 0.5 therefor we fail to reject our null hypothesis. There is no statistical evidence to say that short time on the clock has an effect on the average amount of yards gained or lossed.
+
+### Multiple Regression
+
+We want to use all of our factors available to build the best model which predicts the amount of yards gained using multiple regression.
+
+First lets spend some time prepping the data in order to reduce degrees of freedom.
+
+We start by separating the offensive and deffencsive personnel into their own columns.
+
+```{r, warning = FALSE}
+df3 <- df
+df3$OffensePersonnel <- str_remove_all(df3$OffensePersonnel, " [:upper:]{2}")
+df3$DefensePersonnel <- str_remove_all(df3$DefensePersonnel, " [:upper:]{2}")
+df3 <- df3 %>% separate(OffensePersonnel, c("OL", "RB", "TE", "WR"),sep = ", ", fill = "left") %>%
+  separate(DefensePersonnel, c("DL", "LB", "DB"), sep = ", ")
+df3$RB <- as.numeric(df3$RB)
+df3$TE <- as.numeric(df3$TE)
+df3$WR <- as.numeric(df3$WR)
+df3$DL <- as.numeric(df3$DL)
+df3$LB <- as.numeric(df3$LB)
+df3$DB <- as.numeric(df3$DB)
+```
+
+Next we convert height to inches so that it can be interpreted as a single numerical value.
+
+```{r}
+df3 <- df3 %>% separate(PlayerHeight, c("feet", "inches"), sep = "-", remove = TRUE)
+df3$feet <- as.character(df3$feet)
+df3$feet <- as.numeric(df3$feet)
+df3$inches <- as.character(df3$inches)
+df3$inches <- as.numeric(df3$inches)
+
+
+df3 <- df3 %>% mutate(Height = (feet*12) + inches)
+
+df3 <- df3 %>% mutate(Height = (feet*12) + inches)
+```
+
+##### Full Model
+
+Lets run a linear model including all of our factors.
+
+```{r}
+full_mod <- lm(Yards ~ Team + X + Y + S + A + Dis + Dir + YardLine + Quarter + Down + Distance + RB + TE + WR + DefendersInTheBox + DL + LB + DB + PlayDirection + Height + PlayerWeight, data = df3)
+summary(full_mod)
+```
+
+Our Adjusted R-squared value is 0.01923. The p-value is 2.2e-16 which is very low.
+
+##### Revised Model
+
+In order to save space only the optimal model was included, to find the optimal model we ran the linear model multiple times eliminating factors based on their p-value in order to optimize the Adjusted R-squared.
+
+```{r}
+rev_mod <- lm(Yards ~ X + S + A + Dis + YardLine + Quarter + Down + Distance + RB + TE + WR + DefendersInTheBox + DL + DB + PlayDirection, data = df3)
+summary(rev_mod)
+```
+
+Our Adjusted R-squared value is 0.01925 which is slightly higher then before.  The p-value is still 2.2e-16.
+
+According to our multiple regression model the largest factor in gaining yards is the distance traveled from prior time point in yards, or 'Dis'. For every extra yard gained from prior time point, an extra yard is gained on the run. The biggest negative impact is the number of defenders in the box. For every defender in the box the yards ran decreases by 0.5.
+
+##### Analyzing the Residuals
+
+```{r eval=TRUE}
+plot(rev_mod$residuals ~ rev_mod$fitted.values)
+abline(h = 0, lty = 3)
+```
+
+We see that our negative residuals are not relatively large however the positive residuals are large and negatively impact the model.
+
+```{r eval=TRUE}
+hist(rev_mod$residuals, breaks=50)
+```
+
+We see the residuals are normally distributed however there is a very suddell, yet long, skew to the right.
+
+```{r eval=TRUE}
+qqnorm(rev_mod$residuals)
+qqline(rev_mod$residuals)
+```
+
+We notice in our Q-Q plot that the samples deviate from the line drastically in the upper quartiles. This is to be expected as their are a significant amount of outliers in our dataset. Unfortunately a linear model will not suffice with what we are trying to accomplish. We are able to fit the data from the lower quartiles all the way up to the first quartile. Past that the residuals are drastic and unlikely to predict using a linear regression. A nonlinear regression would be more suitable for this sample. In context it is very difficult to predict when a player breaks away for a large gain in yards using a linear model.
+
+## Conclusion
+
+We have found some useful information however we also found that our multiple regression model is very limited using this dataset.
+
+Our sampling distributions showed a more normal distribution because it limited the number of outliers. This is due to the fact that we were taking the average yard gain from four runs as opposed to one.
+
+Time on the clock did not prove to have an impact on the average number of yards gained. Adversely a first down conversion does correlate strongly with a higher amount of average yards gained.
+
+Out linear model was limited due to the large positive residuals. Using a linear model it is difficult to predict a run which results in a large gain in yards.
+
+
